@@ -112,10 +112,15 @@ Push the website repo; Vercel builds on push.
 
 ## Cost
 
-Only the worker container is billed, and only while a job is running. The
-function asks for 8 CPUs, which on Modal is on the order of $0.0004/s, so a
-5-minute run costs roughly $0.12. The HTTP endpoints are negligible.
-`max_containers` in `worker/modal_app.py` caps concurrent spend.
+Only the worker container is billed, and only while a job is running. Modal
+charges $0.0000131 per CPU core per second, so the 8 cores this function asks
+for come to about $0.0001/s: roughly **3 cents for a 5-minute design**, plus a
+smaller memory charge. The HTTP endpoints are negligible. `max_containers` in
+`worker/modal_app.py` caps concurrent spend.
+
+Modal's Starter plan includes $30/month in credits, which covers on the order of
+900 designs a month at those settings. Academic credit grants are also available
+and are worth applying for if this gets real traffic.
 
 Runs are minutes, not seconds, so the per-run cost is dominated by wall time —
 the Effort slider on the page is the main cost control.
