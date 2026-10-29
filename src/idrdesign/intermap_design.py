@@ -20,17 +20,17 @@ This module imports neither starling nor torch directly. Whether they end up
 loaded depends on what goose and sparrow pull in; `idrdesign.__init__` is lazy
 so that merely importing this module does not drag in `idrdesign.optimize`.
 
-Reproducibility, precisely
---------------------------
-Runs are NOT bit-reproducible, and `seed` cannot make them so.
+Reproducibility
+---------------
 `goose.optimize.SequenceOptimizer` takes no seed, and its candidate generator
-`cython_shuffle_sequence` draws from a C-level RNG that ignores both
-`random.seed()` and `np.random.seed()`. Verified by direct test.
+`cython_shuffle_sequence` draws from the C library's `rand()`, which neither
+`random.seed()` nor `np.random.seed()` touches. Seeding it requires `srand()`
+via ctypes -- see `idrdesign.seeding`, which this module uses.
 
-What `seed` does control: the starting sequence under composition_mode="exact",
-which is drawn here with a seeded `random.Random`. Under the other modes the
-start is a fixed GS repeat, so `seed` has no effect whatsoever. The optimization
-trajectory is unseeded either way.
+With that in place a run IS reproducible: same sequence, same settings, same
+seed gives the same design. `IntermapDesignResult.reproducible` records whether
+libc could actually be reached; if it is False the search was unseeded and the
+result should not be treated as reproducible.
 """
 from __future__ import annotations
 
@@ -45,6 +45,7 @@ import numpy as np
 from goose.optimize import SequenceOptimizer
 from goose.backend.fast_mutations import cython_shuffle_sequence
 
+from idrdesign.seeding import seed_everything
 from idrdesign.intermap_objective import (
     CalvadosIntermapRMSEToTarget,
     IntermapRMSEToTarget,
@@ -82,6 +83,9 @@ class IntermapDesignResult:
     composition_mode: str
     window_size: int
     forcefields: list[str]
+    # False means libc's rand() could not be seeded, so the search was not
+    # reproducible regardless of the seed that was passed.
+    reproducible: bool = True
     # Per-forcefield scores against the target map.
     rmse: dict[str, float] = field(default_factory=dict)
     rmse_start: dict[str, float] = field(default_factory=dict)
@@ -206,8 +210,8 @@ def design_intermap(
             f"got {composition_mode!r}"
         )
 
-    random.seed(seed)
-    np.random.seed(seed)
+    # Seeds libc's rand() too; without that the GOOSE search is unseeded.
+    reproducible = seed_everything(seed)
 
     rng = random.Random(seed)
     starting_seq = _starting_sequence(target_seq, composition_mode, rng)
@@ -277,6 +281,7 @@ def design_intermap(
         composition_mode=composition_mode,
         window_size=window_size,
         forcefields=forcefields,
+        reproducible=reproducible,
         rmse={ff: rmse(design_maps[ff], targets[ff]) for ff in forcefields},
         rmse_start={ff: rmse(start_maps[ff], targets[ff]) for ff in forcefields},
         pearson={ff: pearson(design_maps[ff], targets[ff]) for ff in forcefields},

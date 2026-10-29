@@ -137,11 +137,12 @@ def run_single_optimization(
             f"got {composition_mode!r}"
         )
 
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+    # Seeds libc's rand() as well as Python/numpy/torch. GOOSE's candidate
+    # generator draws from libc, which the other three do not reach, so
+    # without this the search is unseeded whatever seed is passed.
+    from idrdesign.seeding import seed_everything
+
+    seed_everything(seed)
 
     rng = random.Random(seed)
     starting_seq = _starting_sequence_for(target_seq, composition_mode, rng)

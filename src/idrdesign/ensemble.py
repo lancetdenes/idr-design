@@ -33,6 +33,10 @@ def generate_ensembles(
     for name, seq in sequences.items():
         validate_sequence_length(seq)
 
+    # STARLING loads its models in training mode; see encode.ensure_eval_mode.
+    from idrdesign.encode import ensure_eval_mode
+    ensure_eval_mode(device)
+
     ensembles = starling.generate(
         sequences,
         conformations=conformations,

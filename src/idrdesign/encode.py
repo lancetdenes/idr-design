@@ -13,6 +13,34 @@ import starling
 DEFAULT_IONIC_STRENGTH = 150  # mM; matches starling.configs.DEFAULT_IONIC_STRENGTH
 
 
+def ensure_eval_mode(device: str | torch.device | None = None) -> None:
+    """Put STARLING's models in eval mode. Cheap, idempotent, call freely.
+
+    STARLING ships them in training mode: ModelManager.load_models never calls
+    .eval(), and torch.inference_mode() only disables autograd -- it does not
+    change module mode. 511 of 712 submodules stay training, which leaves this
+    branch of SequenceEncoder.forward live:
+
+        if self.training:
+            mask_ionic = torch.rand(...) < 0.2
+            ionic_strengths[mask_ionic] = 0
+
+    i.e. roughly one call in five silently discards the ionic strength it was
+    given. Measured displacement is about 37% of the full 0-500 mM range, and
+    it makes the encoder nondeterministic on a fixed sequence.
+
+    The device is resolved exactly as STARLING resolves it, so this never pins
+    the models to a device the caller did not ask for.
+    """
+    from starling import utilities
+    from starling.inference.generation import model_manager
+
+    vae, diffusion = model_manager.get_models(device=utilities.check_device(device))
+    if vae.training or diffusion.training:
+        vae.eval()
+        diffusion.eval()
+
+
 def l2_normalize(v: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
     """Return v / ||v||_2 along the last axis."""
     return v / (v.norm(p=2, dim=-1, keepdim=True) + eps)
@@ -35,6 +63,7 @@ def encode_sequence(
     Shape: (D,) where D is the STARLING latent dim.
     Kept on CPU by default (we only move to GPU for batched inner loops later).
     """
+    ensure_eval_mode(device)
     out = starling.sequence_encoder(
         {"q": seq},
         ionic_strength=ionic_strength,
@@ -57,6 +86,7 @@ def encode_sequence_perresidue(
     conditioning STARLING actually uses to generate the ensemble, so matching it
     per-residue is a strictly richer objective than matching the mean-pool.
     """
+    ensure_eval_mode(device)
     out = starling.sequence_encoder(
         {"q": seq},
         ionic_strength=ionic_strength,

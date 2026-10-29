@@ -84,17 +84,18 @@ on paste.
 
 ## Reproducibility
 
-**Runs are not reproducible, and `seed` cannot make them so.**
-`goose.optimize.SequenceOptimizer` accepts no seed, and its candidate generator
-`cython_shuffle_sequence` draws from a C-level RNG that ignores both
-`random.seed()` and `numpy.random.seed()`. This was verified directly.
+Runs are reproducible: the same sequence, settings and seed give the same design.
 
-`seed` controls exactly one thing: the starting sequence under
-`composition_mode="exact"`, which is drawn with a seeded `random.Random`. Under
-the other modes the start is a fixed GS repeat and `seed` does nothing at all.
+That takes some care. `goose.optimize.SequenceOptimizer` accepts no seed, and
+its candidate generator `cython_shuffle_sequence` draws from the C library's
+`rand()` — which neither `random.seed()` nor `numpy.random.seed()` reaches.
+Seeding only those two leaves the search unseeded while still appearing to
+accept a seed. `idrdesign.seeding.seed_everything` seeds libc through
+`ctypes.srand()` alongside Python, numpy and torch.
 
-Scoring is deterministic even though the search is not, so a returned sequence
-can always be re-scored to the same numbers.
+`IntermapDesignResult.reproducible` records whether libc was actually reachable.
+If it is ever False, the search ran unseeded and the result should not be
+treated as reproducible.
 
 ## The STARLING path
 
@@ -102,14 +103,20 @@ can always be re-scored to the same numbers.
 embeddings instead, and `worker/modal_app_starling.py` deploys that version on a
 GPU. It is kept intact and is not used by the current page.
 
-One caveat before relying on it: **STARLING's models load in training mode.**
+**A STARLING bug this repo works around:** its models load in training mode.
 `ModelManager.load_models` never calls `.eval()`, and `torch.inference_mode()`
-only disables autograd — it does not change module mode. 511 of 712 submodules,
-including the sequence encoder, stay in training mode, which leaves a 20%
-ionic-strength dropout live in `SequenceEncoder.forward`. The measured effect:
-roughly one call in five returns an embedding displaced by about 37% of the full
-0→500 mM ionic-strength range, as though no ionic strength had been given. A
-`.eval()` after loading fixes it.
+only disables autograd — it does not change module mode. Left alone, 511 of 712
+submodules including the sequence encoder stay in training mode, which keeps a
+20% ionic-strength dropout live in `SequenceEncoder.forward`: roughly one call
+in five returned an embedding displaced by about 37% of the full 0→500 mM range,
+as though no ionic strength had been given, and the encoder was not
+deterministic on a fixed sequence.
+
+`idrdesign.encode.ensure_eval_mode` fixes this, and is called before every
+encode and every ensemble generation. After it, 0 of 712 submodules are in
+training mode and repeated calls are bitwise identical. The fix belongs
+upstream in STARLING; until it lands there, anything calling STARLING directly
+rather than through this package is still affected.
 
 ## Limits
 
