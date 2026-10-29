@@ -6,9 +6,9 @@ Three steps: stand up the worker, point the page at it, publish the page.
 
 ## 1. The worker
 
-The worker runs on [Modal](https://modal.com): serverless GPU, billed per
+The worker runs on [Modal](https://modal.com): serverless CPU, billed per
 second of compute and nothing while idle, which suits a page with occasional
-traffic.
+traffic. No GPU is needed — the interaction maps are analytical numpy.
 
 ```bash
 pip install modal
@@ -23,25 +23,28 @@ Modal prints one URL per endpoint:
 ├── 🔨 Created result => https://<workspace>--idrdesign-result.modal.run
 ```
 
-The first deploy builds the image — torch with CUDA, STARLING, and GOOSE and
-sparrow compiled from source — which takes 10–20 minutes. Later deploys reuse
+The first deploy builds the image — CPU torch, plus GOOSE, sparrow and
+FINCHES compiled from source — which takes several minutes. Later deploys reuse
 the cached layers and finish in seconds.
+
+To deploy the STARLING variant instead, use `worker/modal_app_starling.py`. That
+one does request a GPU and pulls the much larger CUDA torch build, so its first
+image build takes 10–20 minutes. Read the caveat in the README first.
 
 ### Smoke test
 
 ```bash
 curl -X POST https://<workspace>--idrdesign-submit.modal.run \
   -H 'Content-Type: application/json' \
-  -d '{"sequence":"GSGSGSGSGSGSGSGSGSGSGSGSGSGSGS","n_designs":1,"compute_metrics":false}'
+  -d '{"sequence":"'"$(python -c 'print("GS"*40)')"'","max_iterations":20,"render_maps":false}'
 # -> {"status":"running","job_id":"fc-..."}
 
 curl 'https://<workspace>--idrdesign-result.modal.run?job_id=fc-...'
 # -> {"status":"running"}, then the full result
 ```
 
-The first real run also downloads STARLING's model weights into the
-`idrdesign-weights` volume. That happens once; subsequent runs read from the
-cache.
+There are no model weights to download on this path, so the first real run
+costs no more than any other.
 
 ### Restricting access
 
@@ -109,7 +112,10 @@ Push the website repo; Vercel builds on push.
 
 ## Cost
 
-Only the GPU container is billed, and only while a job is running. An A10G is
-roughly $0.0011/s, so a 60-second run including the ensemble pass costs on the
-order of $0.07. The HTTP endpoints are CPU-only and negligible. `max_containers`
-in `worker/modal_app.py` caps concurrent spend.
+Only the worker container is billed, and only while a job is running. The
+function asks for 8 CPUs, which on Modal is on the order of $0.0004/s, so a
+5-minute run costs roughly $0.12. The HTTP endpoints are negligible.
+`max_containers` in `worker/modal_app.py` caps concurrent spend.
+
+Runs are minutes, not seconds, so the per-run cost is dominated by wall time —
+the Effort slider on the page is the main cost control.

@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Design — Lance T Denes</title>
-  <meta name="description" content="Design a disordered protein sequence with a matched conformational ensemble">
+  <meta name="description" content="Design a disordered protein sequence with a matched inter-residue interaction map">
   <link rel="canonical" href="https://lancedenes.org/design.html">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Lance T Denes">
   <meta property="og:title" content="Design an IDR sequence">
-  <meta property="og:description" content="Paste a disordered sequence and generate new sequences with a matched conformational ensemble">
+  <meta property="og:description" content="Paste a disordered sequence and generate a new sequence with a matched interaction map">
   <meta property="og:url" content="https://lancedenes.org/design.html">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="design.css">
@@ -36,14 +36,15 @@
 
     <div class="topic-text">
       <p><b>Design a disordered sequence</b><br>
-      Paste a disordered region. This generates new sequences whose predicted
-      conformational ensemble matches it, while letting you choose how much of the
+      Paste a disordered region. This builds a new sequence with a matching
+      inter-residue interaction map, while letting you choose how much of the
       original amino-acid composition to keep.</p>
-      <p class="muted">Ensembles are predicted with
-      <a href="https://github.com/idptools/starling">STARLING</a>; sequences are
-      optimized with <a href="https://github.com/idptools/goose">GOOSE</a>.
-      Every run starts from a GS repeat, so nothing is carried over from the
-      input except what you pin below.</p>
+      <p class="muted">Interaction maps come from
+      <a href="https://github.com/idptools/finches">FINCHES</a>, using the Mpipi
+      and CALVADOS forcefields; sequences are optimized with
+      <a href="https://github.com/idptools/goose">GOOSE</a>. Every run starts
+      from a GS repeat, so nothing is carried over from the input except what
+      you pin below.</p>
     </div>
 
     <form id="design-form" class="design" novalidate>
@@ -57,7 +58,7 @@
         <textarea id="sequence" name="sequence" rows="5" spellcheck="false"
                   placeholder="Paste a sequence or a FASTA record"
                   aria-describedby="seq-note"></textarea>
-        <p class="note" id="seq-note">10–380 residues. FASTA headers, numbering and
+        <p class="note" id="seq-note">20–380 residues. FASTA headers, numbering and
         whitespace are stripped automatically.
         <button type="button" class="linkish" id="load-example">Load an example</button></p>
       </section>
@@ -77,9 +78,9 @@
           <label class="choice">
             <input type="radio" name="composition_mode" value="properties">
             <span class="choice-body">
-              <span class="choice-name">Chemical classes</span>
-              <span class="choice-note">Holds the count of each chemical class
-              fixed; identities within a class may change.</span>
+              <span class="choice-name">Bulk properties</span>
+              <span class="choice-note">Soft anchors on charge fraction, net
+              charge and hydrophobicity, read off the input.</span>
             </span>
           </label>
           <label class="choice">
@@ -93,60 +94,63 @@
         </div>
       </section>
 
-      <!-- Targets -------------------------------------------------------- -->
+      <!-- Objective ------------------------------------------------------ -->
       <section class="block">
-        <div class="block-head"><h2>Targets</h2></div>
+        <div class="block-head"><h2>What to match</h2></div>
+
+        <div class="choices">
+          <label class="check">
+            <input type="checkbox" name="forcefield" value="mpipi" checked>
+            <span class="choice-body">
+              <span class="choice-name">Mpipi</span>
+              <span class="choice-note">Interaction map from the Mpipi forcefield.</span>
+            </span>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="forcefield" value="calvados" checked>
+            <span class="choice-body">
+              <span class="choice-name">CALVADOS</span>
+              <span class="choice-note">Interaction map from the CALVADOS
+              forcefield. With both selected they are weighted so neither
+              dominates.</span>
+            </span>
+          </label>
+        </div>
 
         <div class="ctl">
-          <label for="target_similarity">Ensemble match</label>
-          <input type="range" id="target_similarity" name="target_similarity"
-                 min="0.80" max="0.995" step="0.005" value="0.95">
-          <output for="target_similarity" id="out-sim">0.950</output>
+          <label for="window_size">Window</label>
+          <div class="seg" role="radiogroup" aria-label="Window size">
+            <label class="segbtn"><input type="radio" name="window_size" value="17" checked><span>17</span></label>
+            <label class="segbtn"><input type="radio" name="window_size" value="31"><span>31</span></label>
+          </div>
+          <output></output>
         </div>
-        <p class="note indent">Cosine similarity in STARLING's encoder space at
-        which a design is accepted. Higher is a closer match and takes longer.</p>
+        <p class="note indent">Residues per sliding window. 31 sees longer-range
+        structure and costs about 2.2× as much per step.</p>
 
         <div class="ctl">
-          <label for="ionic_strength">Ionic strength</label>
-          <input type="range" id="ionic_strength" name="ionic_strength"
-                 min="0" max="500" step="10" value="150">
-          <output for="ionic_strength" id="out-ionic">150 mM</output>
+          <label for="max_iterations">Effort</label>
+          <input type="range" id="max_iterations" name="max_iterations"
+                 min="20" max="300" step="10" value="150">
+          <output for="max_iterations" id="out-iters">150</output>
         </div>
-        <p class="note indent">Salt condition the ensemble is predicted at.
-        150 mM is physiological.</p>
-
-        <div class="ctl">
-          <label for="n_designs">Sequences returned</label>
-          <input type="range" id="n_designs" name="n_designs"
-                 min="1" max="5" step="1" value="3">
-          <output for="n_designs" id="out-n">3</output>
-        </div>
-        <p class="note indent">Each is an independent optimization from its own
-        starting point, so they differ from one another.</p>
+        <p class="note indent">Maximum optimization steps. The run also stops
+        early if it stops improving.
+        <span id="time-estimate"></span></p>
       </section>
 
-      <!-- Validation ----------------------------------------------------- -->
+      <!-- Output --------------------------------------------------------- -->
       <section class="block">
-        <div class="block-head"><h2>Validation</h2></div>
+        <div class="block-head"><h2>Output</h2></div>
 
         <label class="check">
-          <input type="checkbox" id="compute_metrics" name="compute_metrics" checked>
+          <input type="checkbox" id="render_maps" name="render_maps" checked>
           <span class="choice-body">
-            <span class="choice-name">Measure the ensembles</span>
-            <span class="choice-note">Generates full conformational ensembles for
-            the input and every design, and reports radius of gyration,
-            end-to-end distance and asphericity. Adds most of the wait.</span>
+            <span class="choice-name">Show the interaction maps</span>
+            <span class="choice-note">Renders the input, the design and their
+            difference for each selected forcefield. Adds a few seconds.</span>
           </span>
         </label>
-
-        <div class="ctl" id="conformers-row">
-          <label for="n_conformers">Conformers</label>
-          <input type="range" id="n_conformers" name="n_conformers"
-                 min="50" max="400" step="50" value="100">
-          <output for="n_conformers" id="out-conf">100</output>
-        </div>
-        <p class="note indent" id="conformers-note">Per sequence. More conformers
-        tighten the error bars on those numbers.</p>
 
         <div class="ctl">
           <label for="seed">Seed</label>
@@ -154,8 +158,10 @@
                  inputmode="numeric">
           <output></output>
         </div>
-        <p class="note indent">Same sequence, same settings and same seed
-        reproduce the same designs.</p>
+        <p class="note indent">Sets the starting sequence under
+        <em>exact composition</em> only. GOOSE's search is not seedable, so runs
+        are not otherwise reproducible — the same settings give a different
+        sequence each time.</p>
       </section>
 
       <div class="actions">
@@ -168,18 +174,27 @@
     <section id="results" class="results" hidden>
       <hr>
       <div class="block-head">
-        <h2>Designs</h2>
+        <h2>Design</h2>
         <button type="button" class="linkish" id="download">Download FASTA</button>
       </div>
       <div id="design-list"></div>
 
-      <div id="metrics-wrap" hidden>
-        <div class="block-head"><h2>Ensemble measurements</h2></div>
+      <div id="scores-wrap" hidden>
+        <div class="block-head"><h2>Match to the input</h2></div>
         <div class="table-scroll">
-          <table class="metrics" id="metrics-table"></table>
+          <table class="metrics" id="scores-table"></table>
         </div>
-        <p class="note">Mean ± SD across conformers. Rg and end-to-end distance
-        in ångström; asphericity is scale-free, 0 for a sphere.</p>
+        <p class="note">RMSE is in each forcefield's own energy units, so the two
+        are not comparable to each other — compare each against its own starting
+        value. Pearson r is over the upper triangle of the map.</p>
+      </div>
+
+      <div id="maps-wrap" hidden>
+        <div class="block-head"><h2>Interaction maps</h2></div>
+        <div id="map-figures"></div>
+        <p class="note">Blue is negative, red positive, gray near zero. The input
+        and design panels share one color scale so they can be compared directly;
+        the difference panel has its own.</p>
       </div>
     </section>
 

@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Design IDR sequences matching a target STARLING ensemble"
 requires-python = ">=3.10"
 dependencies = [
-    # starling, goose, sparrow and torch must be installed separately; see
+    # starling, goose, sparrow, finches and torch install separately; see
     # worker/modal_app.py for the pinned versions. Pure-python deps only here.
     "numpy",
     "pandas",

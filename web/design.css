@@ -256,3 +256,36 @@ table.metrics tbody tr:last-child td { border-bottom: 0; }
   .note.indent { margin-left: 0; }
   .design { max-width: none; }
 }
+
+/* --- Segmented control (window size) ------------------------------------ */
+
+.seg { display: flex; gap: 0; }
+
+.segbtn { cursor: pointer; }
+.segbtn input { position: absolute; opacity: 0; pointer-events: none; }
+.segbtn span {
+  display: inline-block;
+  padding: 0.2rem 0.85rem;
+  font-size: 0.875rem;
+  border: 1px solid var(--rule);
+  margin-left: -1px;          /* collapse the shared border */
+  font-variant-numeric: tabular-nums;
+}
+.segbtn:first-child span { margin-left: 0; }
+.segbtn input:checked + span { color: var(--bg); background: var(--text); }
+.segbtn input:focus-visible + span { outline: 2px solid var(--text); outline-offset: 2px; }
+
+/* The estimate that trails the effort slider's note. */
+#time-estimate { white-space: nowrap; }
+#time-estimate::before { content: " "; }
+
+/* --- Rendered maps ------------------------------------------------------ */
+
+#map-figures figure { margin: 0 0 1.5rem; }
+#map-figures img {
+  display: block;
+  width: 100%;
+  max-width: 44rem;
+  height: auto;
+  border: 0;
+}

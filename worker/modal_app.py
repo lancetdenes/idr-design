@@ -1,14 +1,17 @@
-"""Modal GPU worker exposing idrdesign as an async HTTP API.
+"""Modal CPU worker exposing the FINCHES intermap design path as an HTTP API.
 
-Two endpoints, both public:
-
-    POST /design   -> {"job_id": "..."}        submit a run, returns immediately
+    POST /submit   -> {"job_id": "..."}        start a run, returns immediately
     GET  /result   -> {"status": ..., ...}     poll until status != "running"
 
-A design run is tens of seconds to a few minutes, which is far past any
-serverless request timeout, so submission and collection are separate calls.
-`submit` spawns the GPU function and hands back Modal's FunctionCall id; the
-browser polls `result` with it.
+One design per request. A run is minutes, not seconds, so submission and
+collection are separate calls and the browser polls.
+
+No GPU: the FINCHES intermaps are analytical numpy, so there is no model to put
+on one. torch still gets installed because sparrow pulls in metapredict, but the
+CPU wheel is enough and is an order of magnitude smaller than the CUDA build.
+
+The STARLING encoder path is preserved in `modal_app_starling.py` and can be
+deployed instead; see the README.
 
 Deploy:  modal deploy worker/modal_app.py
 """
@@ -21,48 +24,35 @@ import modal
 
 APP_NAME = "idrdesign"
 
-# Pinned to a known-good combination. goose and sparrow have no usable PyPI
-# release, so they are pinned by commit rather than version.
+# Pinned to a known-good combination. goose, sparrow and finches have no usable
+# PyPI release, so they are pinned by commit rather than version.
 GOOSE_SHA = "4298c2f95483311c55129ade1865fdd5d337a582"
 SPARROW_SHA = "9b49f77f797c42c1de61e6002a05fac6ffad0a2c"
+FINCHES_SHA = "5b52ba4023e9faf45e4e172e7681c05f86895b14"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-
-# STARLING downloads model weights on first use. Without a persistent cache
-# every cold start re-downloads them, which dominates latency.
-weights_cache = modal.Volume.from_name("idrdesign-weights", create_if_missing=True)
-CACHE_DIR = "/cache"
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("git", "build-essential")
-    # CUDA build of torch.
+    # CPU-only torch. sparrow -> metapredict needs it; nothing here uses a GPU.
     .pip_install(
         "torch==2.11.0",
-        extra_index_url="https://download.pytorch.org/whl/cu128",
+        extra_index_url="https://download.pytorch.org/whl/cpu",
     )
     .pip_install(
         "numpy==2.2.6",
         "cython==3.2.4",
-        "mdtraj==1.10.3",
-        "soursop==0.2.6",
+        "scipy",
         "pandas",
+        "matplotlib",
         "pyyaml",
-        "jinja2",
         "tqdm",
-        "idptools-starling==2.0.0a3",
         f"sparrow @ git+https://github.com/idptools/sparrow.git@{SPARROW_SHA}",
         f"goose @ git+https://github.com/idptools/goose.git@{GOOSE_SHA}",
+        f"finches @ git+https://github.com/idptools/finches.git@{FINCHES_SHA}",
     )
-    .env(
-        {
-            # Point every weight/model cache at the persistent volume.
-            "TORCH_HOME": f"{CACHE_DIR}/torch",
-            "HF_HOME": f"{CACHE_DIR}/hf",
-            "XDG_CACHE_HOME": f"{CACHE_DIR}/xdg",
-            "PYTHONPATH": "/root/src",
-        }
-    )
+    .env({"PYTHONPATH": "/root/src", "MPLBACKEND": "Agg"})
     .add_local_dir(REPO_ROOT / "src", remote_path="/root/src")
 )
 
@@ -73,23 +63,18 @@ app = modal.App(APP_NAME, image=image)
 # Request validation
 # ---------------------------------------------------------------------------
 
-# starling.configs.MAX_SEQUENCE_LENGTH, mirrored in idrdesign.ensemble.
 MAX_SEQUENCE_LENGTH = 380
-MIN_SEQUENCE_LENGTH = 10
+MIN_SEQUENCE_LENGTH = 20   # below ~2x the window the map is barely defined
 AA = set("ACDEFGHIKLMNPQRSTVWY")
 
 VALID_COMPOSITION_MODES = ("none", "exact", "properties")
+VALID_FORCEFIELDS = ("mpipi", "calvados")
+VALID_WINDOW_SIZES = (17, 31)
 
-# Web-facing caps. These exist to bound cost and latency for an anonymous
-# public endpoint, and are deliberately tighter than the CLI defaults.
-LIMITS = {
-    "n_designs": (1, 5),
-    "n_conformers": (50, 400),
-    "target_similarity": (0.80, 0.995),
-    "ionic_strength": (0.0, 500.0),
-}
-MAX_WALL_SECONDS = 420.0
-MAX_ITERATIONS = 3000
+# Web-facing caps, set by wall time rather than taste: at window 17 with both
+# forcefields a run costs roughly 2 s per iteration on a few cores.
+LIMITS = {"max_iterations": (20, 300)}
+MAX_WALL_SECONDS = 1500.0
 
 
 class BadRequest(Exception):
@@ -97,11 +82,7 @@ class BadRequest(Exception):
 
 
 def clean_sequence(raw: str) -> str:
-    """Strip FASTA headers, whitespace and numbering; uppercase; validate.
-
-    Accepts a bare sequence, a pasted FASTA record, or sequence text with
-    residue numbers and spaces in it (as copied out of a viewer).
-    """
+    """Strip FASTA headers, whitespace and numbering; uppercase; validate."""
     if not isinstance(raw, str):
         raise BadRequest("sequence must be a string")
 
@@ -125,36 +106,55 @@ def clean_sequence(raw: str) -> str:
         )
     if len(seq) > MAX_SEQUENCE_LENGTH:
         raise BadRequest(
-            f"sequence is {len(seq)} residues; STARLING's maximum is "
-            f"{MAX_SEQUENCE_LENGTH}. Trim it or split it into domains."
+            f"sequence is {len(seq)} residues; the limit is {MAX_SEQUENCE_LENGTH}. "
+            "Trim it or split it into domains."
         )
     return seq
 
 
-def _num(payload: dict, key: str, cast, default):
-    if key not in payload or payload[key] is None:
-        return default
-    try:
-        val = cast(payload[key])
-    except (TypeError, ValueError):
-        raise BadRequest(f"{key} must be a number")
-    if key in LIMITS:
-        lo, hi = LIMITS[key]
-        if not (lo <= val <= hi):
-            raise BadRequest(f"{key} must be between {lo} and {hi}")
-    return val
-
-
 def parse_payload(payload: dict) -> dict:
-    """Validate and normalize the browser's JSON into design_idr kwargs."""
+    """Validate and normalize the browser's JSON into design_intermap kwargs."""
     if not isinstance(payload, dict):
         raise BadRequest("expected a JSON object")
+
+    seq = clean_sequence(payload.get("sequence", ""))
 
     mode = payload.get("composition_mode", "none")
     if mode not in VALID_COMPOSITION_MODES:
         raise BadRequest(
             f"composition_mode must be one of {VALID_COMPOSITION_MODES}, got {mode!r}"
         )
+
+    ffs = payload.get("forcefields", list(VALID_FORCEFIELDS))
+    if isinstance(ffs, str):
+        ffs = [ffs]
+    if not isinstance(ffs, (list, tuple)) or not ffs:
+        raise BadRequest("select at least one forcefield")
+    bad = [f for f in ffs if f not in VALID_FORCEFIELDS]
+    if bad:
+        raise BadRequest(f"unknown forcefield(s): {', '.join(map(str, bad))}")
+    # Preserve a stable order regardless of what the browser sent.
+    ffs = [f for f in VALID_FORCEFIELDS if f in ffs]
+
+    try:
+        window_size = int(payload.get("window_size", 17))
+    except (TypeError, ValueError):
+        raise BadRequest("window_size must be an integer")
+    if window_size not in VALID_WINDOW_SIZES:
+        raise BadRequest(f"window_size must be one of {VALID_WINDOW_SIZES}")
+    if len(seq) < window_size * 2:
+        raise BadRequest(
+            f"sequence is {len(seq)} residues, too short for window {window_size}; "
+            f"need at least {window_size * 2}"
+        )
+
+    try:
+        iters = int(payload.get("max_iterations", 150))
+    except (TypeError, ValueError):
+        raise BadRequest("max_iterations must be an integer")
+    lo, hi = LIMITS["max_iterations"]
+    if not (lo <= iters <= hi):
+        raise BadRequest(f"max_iterations must be between {lo} and {hi}")
 
     seed = payload.get("seed")
     if seed in (None, ""):
@@ -166,95 +166,78 @@ def parse_payload(payload: dict) -> dict:
             raise BadRequest("seed must be an integer")
 
     return {
-        "sequence": clean_sequence(payload.get("sequence", "")),
+        "sequence": seq,
         "composition_mode": mode,
-        "target_similarity": _num(payload, "target_similarity", float, 0.95),
-        "ionic_strength": _num(payload, "ionic_strength", float, 150.0),
-        "n_designs": _num(payload, "n_designs", int, 3),
-        "n_conformers": _num(payload, "n_conformers", int, 100),
-        "compute_metrics": bool(payload.get("compute_metrics", True)),
+        "forcefields": ffs,
+        "window_size": window_size,
+        "max_iterations": iters,
+        "render_maps": bool(payload.get("render_maps", True)),
         "seed": seed,
     }
 
 
 # ---------------------------------------------------------------------------
-# The GPU job
+# The job
 # ---------------------------------------------------------------------------
 
 @app.function(
-    gpu="A10G",
-    timeout=900,
-    volumes={CACHE_DIR: weights_cache},
+    cpu=8.0,
+    memory=8192,
+    timeout=1800,
     max_containers=4,
 )
 def run_design(req: dict) -> dict:
-    """Run the design loop, then optionally the ensemble/metrics pass."""
-    import numpy as np
+    """Design one sequence against the intermap objective(s), then render maps."""
+    from idrdesign.intermap_design import design_intermap, target_maps, pearson, rmse
 
-    from idrdesign.optimize import design_idr
-
-    designs = design_idr(
+    result = design_intermap(
         target_seq=req["sequence"],
-        n_designs=req["n_designs"],
-        target_similarity=req["target_similarity"],
+        forcefields=req["forcefields"],
+        window_size=req["window_size"],
         composition_mode=req["composition_mode"],
-        max_iterations=MAX_ITERATIONS,
+        max_iterations=req["max_iterations"],
         max_wall_seconds=MAX_WALL_SECONDS,
         seed=req["seed"],
-        ionic_strength=req["ionic_strength"],
     )
 
     out = {
         "status": "done",
         "target": {"sequence": req["sequence"], "length": len(req["sequence"])},
         "params": {k: v for k, v in req.items() if k != "sequence"},
-        "designs": [
-            {
-                "sequence": d.sequence,
-                "cosine_similarity": round(float(d.final_cosine_similarity), 4),
-                "iterations": int(d.iterations),
-                "wall_seconds": round(float(d.wall_seconds), 1),
-                "convergence_status": d.convergence_status,
-                "seed": int(d.seed),
-                "composition_mode": d.composition_mode,
+        "design": {
+            "sequence": result.sequence,
+            "starting_sequence": result.starting_sequence,
+            "iterations": result.iterations,
+            "wall_seconds": round(result.wall_seconds, 1),
+            "convergence_status": result.convergence_status,
+            "composition_mode": result.composition_mode,
+            "window_size": result.window_size,
+        },
+        "scores": {
+            ff: {
+                "rmse": round(result.rmse[ff], 4),
+                "rmse_start": round(result.rmse_start[ff], 4),
+                "pearson": round(result.pearson[ff], 4),
             }
-            for d in designs
-        ],
-        "metrics": None,
+            for ff in result.forcefields
+        },
+        "maps": None,
     }
 
-    if not req["compute_metrics"]:
+    if not req["render_maps"]:
         return out
 
-    from idrdesign.ensemble import extract_metrics, generate_ensembles
+    from idrdesign.intermap_figure import render_intermap_figure
 
-    records = {"target": req["sequence"]}
-    for i, d in enumerate(designs):
-        records[f"design_{i:02d}"] = d.sequence
-
-    ensembles = generate_ensembles(
-        records,
-        conformations=req["n_conformers"],
-        ionic_strength=req["ionic_strength"],
-        device="cuda",
-        verbose=False,
-    )
-
-    # Summary scalars only. Distance and contact maps are (L, L) float arrays;
-    # for a 380-residue sequence that is ~580 kB of JSON per ensemble, so they
-    # are deliberately not serialized here.
-    summary = {}
-    for name, ens in ensembles.items():
-        m = extract_metrics(ens)
-        summary[name] = {
-            "rg_mean": round(float(np.mean(m["rg"])), 2),
-            "rg_std": round(float(np.std(m["rg"])), 2),
-            "end_to_end_mean": round(float(np.mean(m["end_to_end"])), 2),
-            "end_to_end_std": round(float(np.std(m["end_to_end"])), 2),
-            "asphericity_mean": round(float(np.mean(m["asphericity"])), 4),
-        }
-
-    out["metrics"] = summary
+    tmaps = target_maps(req["sequence"], result.forcefields, result.window_size)
+    dmaps = target_maps(result.sequence, result.forcefields, result.window_size)
+    out["maps"] = {
+        ff: render_intermap_figure(
+            tmaps[ff], dmaps[ff],
+            forcefield=ff, window_size=result.window_size,
+        )
+        for ff in result.forcefields
+    }
     return out
 
 
@@ -262,10 +245,9 @@ def run_design(req: dict) -> dict:
 # HTTP surface
 # ---------------------------------------------------------------------------
 
-def _cors(origin: str | None = None) -> dict:
-    allowed = os.environ.get("ALLOWED_ORIGIN", "*")
+def _cors() -> dict:
     return {
-        "Access-Control-Allow-Origin": allowed,
+        "Access-Control-Allow-Origin": os.environ.get("ALLOWED_ORIGIN", "*"),
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
     }
@@ -274,7 +256,7 @@ def _cors(origin: str | None = None) -> dict:
 @app.function(image=image)
 @modal.fastapi_endpoint(method="POST", docs=False)
 def submit(payload: dict):
-    """Validate, spawn the GPU job, hand back a job id."""
+    """Validate, spawn the job, hand back a job id."""
     from fastapi.responses import JSONResponse
 
     try:
@@ -308,7 +290,6 @@ def result(job_id: str):
         )
 
     try:
-        # timeout=0 polls without blocking the request.
         return JSONResponse(call.get(timeout=0), headers=_cors())
     except TimeoutError:
         return JSONResponse({"status": "running"}, headers=_cors())
