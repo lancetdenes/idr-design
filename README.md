@@ -87,3 +87,8 @@ idrdesign --target-fasta seqs.fasta --target-name MYSEQ --output-dir out/
 This writes designs, ensembles, a metrics table and an HTML report. STARLING,
 GOOSE, sparrow and torch must already be installed; see the pinned versions in
 `worker/modal_app.py`.
+
+## License
+
+MIT — see [LICENSE](LICENSE). STARLING, GOOSE, sparrow and finches are separate
+projects with their own licenses.
