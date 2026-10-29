@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "idrdesign"
+version = "0.1.0"
+description = "Design IDR sequences matching a target STARLING ensemble"
+requires-python = ">=3.10"
+dependencies = [
+    # starling, goose, sparrow and torch must be installed separately; see
+    # worker/modal_app.py for the pinned versions. Pure-python deps only here.
+    "numpy",
+    "pandas",
+    "pyyaml",
+    "jinja2",
+    "matplotlib",
+    "tqdm",
+]
+
+[project.scripts]
+idrdesign = "idrdesign.cli:main"
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-timeout",
+    # The multi-forcefield objectives need finches, which has no PyPI release.
+    "finches @ git+https://github.com/idptools/finches.git@5b52ba4023e9faf45e4e172e7681c05f86895b14",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+idrdesign = ["templates/*.j2"]
+
+[tool.pytest.ini_options]
+markers = [
+    "gpu: test requires GPU + STARLING + GOOSE",
+    "slow: test takes more than 10 seconds",
+]
+testpaths = ["tests"]

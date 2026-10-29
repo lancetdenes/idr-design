@@ -1,0 +1,258 @@
+/* Design page — controls and results.
+   Inherits every colour, font and rule from style.css. Adds no new palette:
+   everything here is --text, --muted, --rule and --bg. */
+
+:root {
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --label-col: 11rem;
+}
+
+/* --- Blocks ------------------------------------------------------------- */
+
+.design { max-width: 44rem; margin: 2.25rem 0 0; }
+
+.block { margin: 0 0 2.5rem; }
+
+.block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 1rem;
+}
+
+/* style.css gives h2 a 2.75rem top margin for prose; inside a block head the
+   rule above it already does the separating. */
+.block-head h2 { margin: 0; }
+
+.counter { font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.counter.over { color: var(--text); font-weight: 700; }
+
+.note {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  margin: 0.35rem 0 0;
+  max-width: var(--measure);
+}
+.note.indent { margin: 0.3rem 0 1.4rem var(--label-col); }
+
+/* A button that reads as a link, so the page keeps one visual vocabulary. */
+.linkish {
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--text);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+.linkish:hover { text-decoration: none; }
+
+/* --- Sequence box ------------------------------------------------------- */
+
+textarea#sequence {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  padding: 0.7rem 0.8rem;
+  resize: vertical;
+  -webkit-appearance: none;
+}
+textarea#sequence::placeholder { color: var(--muted); letter-spacing: 0; font-family: var(--font); }
+textarea#sequence:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+
+/* --- Radios and checkboxes --------------------------------------------- */
+
+.choices { display: flex; flex-direction: column; gap: 0.85rem; }
+
+.choice, .check {
+  display: grid;
+  grid-template-columns: 1rem 1fr;
+  gap: 0 0.7rem;
+  align-items: start;
+  cursor: pointer;
+  max-width: var(--measure);
+}
+.check { margin-bottom: 1.4rem; }
+
+.choice-body { display: block; }
+.choice-name { display: block; }
+.choice-note { display: block; font-size: 0.8125rem; color: var(--muted); margin-top: 0.1rem; }
+
+/* Square, hairline, filled when on — the asterisk-divider school of ornament. */
+input[type="radio"], input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin: 0.28rem 0 0;
+  border: 1px solid var(--rule);
+  background: var(--bg);
+  cursor: pointer;
+  flex: none;
+}
+input[type="radio"] { border-radius: 50%; }
+input[type="radio"]:checked { box-shadow: inset 0 0 0 3px var(--bg), inset 0 0 0 1rem var(--text); }
+input[type="checkbox"]:checked { box-shadow: inset 0 0 0 2px var(--bg), inset 0 0 0 1rem var(--text); }
+input[type="radio"]:focus-visible, input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+/* --- Slider rows -------------------------------------------------------- */
+
+.ctl {
+  display: grid;
+  grid-template-columns: var(--label-col) 1fr 5rem;
+  align-items: center;
+  gap: 0 1rem;
+  margin: 0 0 0.1rem;
+  max-width: 40rem;
+}
+.ctl label { font-size: 0.9375rem; }
+.ctl output {
+  font-size: 0.8125rem;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ctl.disabled { opacity: 0.35; }
+.ctl.disabled, .ctl.disabled * { cursor: not-allowed; }
+.note.disabled { opacity: 0.35; }
+
+/* A 1px rule for a track, a small black square for a thumb. */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  background: transparent;
+  margin: 0;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 1px;
+  background: var(--rule);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0.6875rem;
+  height: 0.6875rem;
+  background: var(--text);
+  border: 0;
+  border-radius: 0;
+  margin-top: -0.34375rem;   /* centre the square on the 1px track */
+}
+input[type="range"]::-moz-range-track { height: 1px; background: var(--rule); }
+input[type="range"]::-moz-range-thumb {
+  width: 0.6875rem;
+  height: 0.6875rem;
+  background: var(--text);
+  border: 0;
+  border-radius: 0;
+}
+input[type="range"]:focus-visible { outline: 2px solid var(--text); outline-offset: 0.5rem; }
+
+input[type="number"]#seed {
+  font: inherit;
+  font-size: 0.875rem;
+  width: 6rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  padding: 0.15rem 0.1rem;
+}
+input[type="number"]#seed:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+/* --- Submit ------------------------------------------------------------- */
+
+.actions { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; margin: 0 0 1rem; }
+
+button#run {
+  font: inherit;
+  font-weight: 700;
+  color: var(--bg);
+  background: var(--text);
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  padding: 0.45rem 1.6rem;
+  cursor: pointer;
+}
+button#run:hover { color: var(--text); background: var(--bg); }
+button#run:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+button#run[disabled] { cursor: progress; color: var(--muted); background: var(--bg); border-color: var(--muted); }
+
+.status { font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.status.error { color: var(--text); }
+.status.error::before { content: "* "; }
+
+/* --- Results ------------------------------------------------------------ */
+
+.results { margin-top: 1rem; }
+
+.design-row { margin: 0 0 1.75rem; }
+
+.design-row .row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.design-row .row-name { font-weight: 700; font-size: 0.9375rem; }
+.design-row .row-stats { font-size: 0.8125rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.seq {
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  line-height: 1.75;
+  letter-spacing: 0.04em;
+  word-break: break-all;
+  margin: 0.4rem 0 0;
+  padding: 0.55rem 0.7rem;
+  border-left: 1px solid var(--rule);
+  background: var(--bg);
+}
+.seq.target { color: var(--muted); }
+
+/* Measurements table: hairline rules, no fills. */
+.table-scroll { overflow-x: auto; }
+table.metrics {
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  width: 100%;
+  max-width: 40rem;
+}
+table.metrics th, table.metrics td {
+  text-align: right;
+  padding: 0.35rem 0.75rem 0.35rem 0;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+table.metrics th:first-child, table.metrics td:first-child { text-align: left; }
+table.metrics thead th { font-weight: 700; }
+table.metrics tbody tr.is-target td { color: var(--muted); }
+table.metrics tbody tr:last-child td { border-bottom: 0; }
+
+@media (max-width: 40rem) {
+  .ctl { grid-template-columns: 1fr 4.5rem; gap: 0.2rem 0.75rem; margin-bottom: 0.9rem; }
+  .ctl label { grid-column: 1 / -1; }
+  .note.indent { margin-left: 0; }
+  .design { max-width: none; }
+}

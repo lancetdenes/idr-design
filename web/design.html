@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Design — Lance T Denes</title>
+  <meta name="description" content="Design a disordered protein sequence with a matched conformational ensemble">
+  <link rel="canonical" href="https://lancedenes.org/design.html">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Lance T Denes">
+  <meta property="og:title" content="Design an IDR sequence">
+  <meta property="og:description" content="Paste a disordered sequence and generate new sequences with a matched conformational ensemble">
+  <meta property="og:url" content="https://lancedenes.org/design.html">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="design.css">
+</head>
+<body>
+<div class="page">
+  <header>
+    <a class="lab-name" href="index.html">Lance T Denes</a>
+    <div class="affil">NYU School of Medicine</div>
+  </header>
+  <nav class="subnav" aria-label="Site">
+    <ul>
+      <li><a href="research.html" data-conf="c1">Research</a></li>
+      <li><a href="people.html" data-conf="c5">People</a></li>
+      <li><a href="publications.html" data-conf="c2">Publications</a></li>
+      <li><a href="cv.html" data-conf="c3">CV</a></li>
+      <li><a href="contact.html" data-conf="c4">Contact</a></li>
+      <li><a href="design.html" data-conf="c6" aria-current="page">Design</a></li>
+    </ul>
+  </nav>
+
+  <main class="wide">
+    <h1 class="sr-only">Design</h1>
+
+    <div class="topic-text">
+      <p><b>Design a disordered sequence</b><br>
+      Paste a disordered region. This generates new sequences whose predicted
+      conformational ensemble matches it, while letting you choose how much of the
+      original amino-acid composition to keep.</p>
+      <p class="muted">Ensembles are predicted with
+      <a href="https://github.com/idptools/starling">STARLING</a>; sequences are
+      optimized with <a href="https://github.com/idptools/goose">GOOSE</a>.
+      Every run starts from a GS repeat, so nothing is carried over from the
+      input except what you pin below.</p>
+    </div>
+
+    <form id="design-form" class="design" novalidate>
+
+      <!-- Sequence ------------------------------------------------------- -->
+      <section class="block">
+        <div class="block-head">
+          <h2>Sequence</h2>
+          <span class="counter" id="len-readout" aria-live="polite">0 / 380</span>
+        </div>
+        <textarea id="sequence" name="sequence" rows="5" spellcheck="false"
+                  placeholder="Paste a sequence or a FASTA record"
+                  aria-describedby="seq-note"></textarea>
+        <p class="note" id="seq-note">10–380 residues. FASTA headers, numbering and
+        whitespace are stripped automatically.
+        <button type="button" class="linkish" id="load-example">Load an example</button></p>
+      </section>
+
+      <!-- Composition ---------------------------------------------------- -->
+      <section class="block">
+        <div class="block-head"><h2>What to keep from the original</h2></div>
+        <div class="choices" role="radiogroup" aria-label="Composition constraint">
+          <label class="choice">
+            <input type="radio" name="composition_mode" value="none" checked>
+            <span class="choice-body">
+              <span class="choice-name">Nothing</span>
+              <span class="choice-note">Any composition. Freest search, least
+              like the original sequence.</span>
+            </span>
+          </label>
+          <label class="choice">
+            <input type="radio" name="composition_mode" value="properties">
+            <span class="choice-body">
+              <span class="choice-name">Chemical classes</span>
+              <span class="choice-note">Holds the count of each chemical class
+              fixed; identities within a class may change.</span>
+            </span>
+          </label>
+          <label class="choice">
+            <input type="radio" name="composition_mode" value="exact">
+            <span class="choice-body">
+              <span class="choice-name">Exact composition</span>
+              <span class="choice-note">Same amino-acid counts throughout —
+              a pure reshuffle. Only the order changes.</span>
+            </span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Targets -------------------------------------------------------- -->
+      <section class="block">
+        <div class="block-head"><h2>Targets</h2></div>
+
+        <div class="ctl">
+          <label for="target_similarity">Ensemble match</label>
+          <input type="range" id="target_similarity" name="target_similarity"
+                 min="0.80" max="0.995" step="0.005" value="0.95">
+          <output for="target_similarity" id="out-sim">0.950</output>
+        </div>
+        <p class="note indent">Cosine similarity in STARLING's encoder space at
+        which a design is accepted. Higher is a closer match and takes longer.</p>
+
+        <div class="ctl">
+          <label for="ionic_strength">Ionic strength</label>
+          <input type="range" id="ionic_strength" name="ionic_strength"
+                 min="0" max="500" step="10" value="150">
+          <output for="ionic_strength" id="out-ionic">150 mM</output>
+        </div>
+        <p class="note indent">Salt condition the ensemble is predicted at.
+        150 mM is physiological.</p>
+
+        <div class="ctl">
+          <label for="n_designs">Sequences returned</label>
+          <input type="range" id="n_designs" name="n_designs"
+                 min="1" max="5" step="1" value="3">
+          <output for="n_designs" id="out-n">3</output>
+        </div>
+        <p class="note indent">Each is an independent optimization from its own
+        starting point, so they differ from one another.</p>
+      </section>
+
+      <!-- Validation ----------------------------------------------------- -->
+      <section class="block">
+        <div class="block-head"><h2>Validation</h2></div>
+
+        <label class="check">
+          <input type="checkbox" id="compute_metrics" name="compute_metrics" checked>
+          <span class="choice-body">
+            <span class="choice-name">Measure the ensembles</span>
+            <span class="choice-note">Generates full conformational ensembles for
+            the input and every design, and reports radius of gyration,
+            end-to-end distance and asphericity. Adds most of the wait.</span>
+          </span>
+        </label>
+
+        <div class="ctl" id="conformers-row">
+          <label for="n_conformers">Conformers</label>
+          <input type="range" id="n_conformers" name="n_conformers"
+                 min="50" max="400" step="50" value="100">
+          <output for="n_conformers" id="out-conf">100</output>
+        </div>
+        <p class="note indent" id="conformers-note">Per sequence. More conformers
+        tighten the error bars on those numbers.</p>
+
+        <div class="ctl">
+          <label for="seed">Seed</label>
+          <input type="number" id="seed" name="seed" value="0" min="0" step="1"
+                 inputmode="numeric">
+          <output></output>
+        </div>
+        <p class="note indent">Same sequence, same settings and same seed
+        reproduce the same designs.</p>
+      </section>
+
+      <div class="actions">
+        <button type="submit" id="run">Design</button>
+        <span class="status" id="status" role="status" aria-live="polite"></span>
+      </div>
+    </form>
+
+    <!-- Results ---------------------------------------------------------- -->
+    <section id="results" class="results" hidden>
+      <hr>
+      <div class="block-head">
+        <h2>Designs</h2>
+        <button type="button" class="linkish" id="download">Download FASTA</button>
+      </div>
+      <div id="design-list"></div>
+
+      <div id="metrics-wrap" hidden>
+        <div class="block-head"><h2>Ensemble measurements</h2></div>
+        <div class="table-scroll">
+          <table class="metrics" id="metrics-table"></table>
+        </div>
+        <p class="note">Mean ± SD across conformers. Rg and end-to-end distance
+        in ångström; asphericity is scale-free, 0 for a sphere.</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+<script src="design.js"></script>
+</body>
+</html>
